@@ -1,0 +1,29 @@
+#!/bin/bash
+# A checked copy of the database, and the last 14 days of them. Safe while the server runs: sqlite's own
+# backup reads a consistent snapshot, WAL included, where a file copy could catch a write half done.
+set -eu
+db=${CHATS_HOME:-$HOME/.chats}/chats.db
+dest=${CHATS_BACKUPS:-$HOME/.chats-backups}
+umask 077                                   # people's names and contacts are in it
+# Only this script's own exact names, and a copy it left half made when killed: never a copy made by hand.
+# First, so that a backup that fails still deletes the old ones.
+ts='[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z'
+[ ! -d "$dest" ] || find "$dest" -maxdepth 1 \( -name "chats-$ts.db" -o -name "chats-$ts.db.*.partial" \) \
+  -mmin +$((14 * 24 * 60)) -delete
+[ -f "$db" ] || { echo "BACKUP FAILED: no database at $db" >&2; exit 1; }
+mkdir -p "$dest"
+chmod 700 "$dest"
+name=$dest/chats-$(date -u +%Y%m%dT%H%M%SZ).db
+tmp=$name.$$.partial      # not matched as a backup until checked; per run, so a run started the same second
+                          # cannot delete this one's copy
+trap 'rm -f "$tmp" "$tmp-wal" "$tmp-shm"' EXIT
+sqlite3 "$db" ".backup '$tmp'"
+check=$(sqlite3 "$tmp" "PRAGMA integrity_check" 2>&1) || true    # not -readonly: it cannot open a WAL copy
+if [ "$check" != ok ]; then
+  echo "BACKUP FAILED: the copy of $db is not intact:" >&2
+  echo "$check" >&2
+  exit 1
+fi
+chmod 600 "$tmp"
+mv "$tmp" "$name"
+echo "$name"

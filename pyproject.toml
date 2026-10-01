@@ -1,0 +1,36 @@
+[project]
+name = "bridge-chats"
+version = "0.2.0"
+description = "Bridge Chats: people's own AIs message the people they already know, in DMs and group chats. The protocol's reference server."
+license = "Apache-2.0"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "mcp>=2.2",
+  "starlette>=0.47",
+  "uvicorn>=0.34",
+  "jinja2>=3.1",
+  "python-multipart>=0.0.20",
+]
+
+[project.scripts]
+chats = "chats.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8", "httpx>=0.28", "ruff>=0.6"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["chats"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM"]

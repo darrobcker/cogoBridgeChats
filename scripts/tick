@@ -1,0 +1,135 @@
+#!/usr/bin/env python3
+"""Every ten minutes, from a timer (systemd, launchd or cron): logs kept short, a backup when the newest is a day old, none kept
+past 14 days, each new one copied off the machine if a place is given, and the operator told when that backup or
+its copy fails, when the public URL stops answering, and when it is back.
+"""
+from __future__ import annotations
+
+import contextlib
+import json
+import os
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+HOME = Path(os.environ.get("CHATS_HOME") or Path.home() / ".chats")
+BACKUPS = Path(os.environ.get("CHATS_BACKUPS") or Path.home() / ".chats-backups")
+NOTIFY = os.environ.get("CHATS_OPERATOR_NOTIFY", "")
+BASE_URL = os.environ.get("CHATS_BASE_URL", "").rstrip("/")
+# A blob container's address with an upload-only signature (an Azure Blob SAS): a disk lost with the server would
+# take its backups with it. It is a secret, so it is never printed.
+COPY = os.environ.get("CHATS_BACKUP_COPY", "")
+LOGS = ("server.log", "tunnel.log", "tick.log")
+LOG_MAX, LOG_KEEP = 5 << 20, 1 << 20
+BACKUP_EVERY = 24 * 3600
+BACKUP_KEEP = 14 * 24 * 3600    # what erasing tells a person, and PROTOCOL.md §6, promise a bound on it
+BACKUP_NAME = "chats-" + "[0-9]" * 8 + "T" + "[0-9]" * 6 + "Z.db"     # scripts/backup's, never a hand copy
+ALERT_EVERY = 3600
+HEADERS = {"User-Agent": "chats-tick"}     # Cloudflare bans urllib's default one with a 403
+FAILS_BEFORE_ALERT = 2      # one failed check is often a tunnel reconnecting
+
+
+def trim(log: Path) -> None:
+    """In place, not by rename: whatever writes it holds the file open and would go on writing to the old one."""
+    if not log.exists() or log.stat().st_size <= LOG_MAX:
+        return
+    with open(log, "r+b") as f:
+        f.seek(-LOG_KEEP, os.SEEK_END)
+        tail = f.read()
+        tail = tail[tail.find(b"\n") + 1:]      # start at a whole line
+        f.seek(0)
+        f.write(tail)
+        f.truncate()
+
+
+def healthy() -> bool:
+    try:
+        request = urllib.request.Request(f"{BASE_URL}/health", headers=HEADERS)
+        with urllib.request.urlopen(request, timeout=15) as response:
+            return json.load(response).get("ok") is True
+    except Exception:
+        return False
+
+
+def tell(line: str) -> bool:
+    try:
+        request = urllib.request.Request(NOTIFY, data=line.encode(), method="POST",
+                                         headers={"Title": "Bridge Chats", **HEADERS})
+        urllib.request.urlopen(request, timeout=15).close()
+        return True
+    except Exception:
+        return False
+
+
+def watch(state: dict, now: float) -> None:
+    """Told only when a line was delivered, so a failed notification is tried again next time."""
+    if healthy():
+        if state.get("down") and tell(f"Bridge Chats is back up: {BASE_URL}"):
+            state["down"] = False
+        state["fails"] = 0
+        return
+    state["fails"] = state.get("fails", 0) + 1
+    if (state["fails"] >= FAILS_BEFORE_ALERT and now - state.get("alerted_t", 0) >= ALERT_EVERY
+            and tell(f"Bridge Chats is down: {BASE_URL}/health has failed {state['fails']} checks in a row")):
+        state["alerted_t"] = now
+        state["down"] = True
+
+
+def copy(state: dict) -> bool:
+    """The newest backup, once, to the other place. Upload-only: this machine can add a copy there and never read,
+    replace or delete one; the place deletes them itself, inside the bound PROTOCOL.md §6 states."""
+    newest = max(BACKUPS.glob(BACKUP_NAME), key=lambda p: p.stat().st_mtime, default=None)
+    if newest is None or state.get("copied") == newest.name:
+        return True
+    where, _, signature = COPY.partition("?")
+    request = urllib.request.Request(f"{where.rstrip('/')}/{newest.name}?{signature}", data=newest.read_bytes(),
+                                     method="PUT", headers={"x-ms-blob-type": "BlockBlob", **HEADERS})
+    try:
+        urllib.request.urlopen(request, timeout=300).close()
+    except urllib.error.HTTPError as e:
+        # There already, from a run whose answer was lost: Azure refuses to overwrite with an upload-only signature.
+        if e.headers.get("x-ms-error-code") != "UnauthorizedBlobOverwrite":
+            print(f"BACKUP COPY FAILED: {newest.name}: HTTP {e.code} {e.headers.get('x-ms-error-code', '')}",
+                  file=sys.stderr)
+            return False
+    except Exception as e:
+        print(f"BACKUP COPY FAILED: {newest.name}: {type(e).__name__}", file=sys.stderr)
+        return False
+    state["copied"] = newest.name
+    return True
+
+
+def main() -> None:
+    now = time.time()
+    for name in LOGS:
+        trim(HOME / name)
+    path, state = HOME / "tick.json", {}
+    with contextlib.suppress(OSError, ValueError):
+        state = json.loads(path.read_text())
+    if NOTIFY and BASE_URL:     # without the URL every check would fail, and a server that is up be called down
+        watch(state, now)
+    # Every time, not only after a backup that succeeded: the bound holds while backups fail too.
+    for p in [*BACKUPS.glob(BACKUP_NAME), *BACKUPS.glob(BACKUP_NAME + ".*.partial")]:
+        with contextlib.suppress(FileNotFoundError):
+            if now - p.stat().st_mtime > BACKUP_KEEP:
+                p.unlink()
+    newest = max((p.stat().st_mtime for p in BACKUPS.glob(BACKUP_NAME)), default=0)
+    failed = now - newest > BACKUP_EVERY and subprocess.run([Path(__file__).with_name("backup")]).returncode != 0
+    if (failed and NOTIFY and now - state.get("backup_alerted_t", 0) >= ALERT_EVERY
+            and tell("Bridge Chats backup failed: see tick.log")):
+        state["backup_alerted_t"] = now
+    copied = copy(state) if COPY else True
+    if (not copied and NOTIFY and now - state.get("copy_alerted_t", 0) >= ALERT_EVERY
+            and tell("Bridge Chats' backup could not be copied off the machine: see tick.log")):
+        state["copy_alerted_t"] = now
+    if NOTIFY or COPY:
+        path.with_suffix(".tmp").write_text(json.dumps(state))
+        path.with_suffix(".tmp").replace(path)
+    sys.exit(failed or not copied)
+
+
+if __name__ == "__main__":
+    main()

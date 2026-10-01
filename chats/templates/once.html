@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Your routine's link{% endblock %}
+{% block role %}quiet{% endblock %}
+{% block main %}
+<h1>Your routine's link</h1>
+{% if run_link %}
+<p>It can only read the chats you opened to answering, answer asks for you, reply where answering is on, and keep
+notes. Put it in one scheduled routine as its only connector, and nowhere else. It is shown only this once.</p>
+<label for="run">The link</label>
+<textarea id="run" class="link" readonly rows="2">{{ run_link }}</textarea>
+{% else %}
+<p>It shows once. Open it only where nobody else can see.</p>
+<form method="post"><button type="submit">Show it</button></form>
+{% endif %}
+{% endblock %}

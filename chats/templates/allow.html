@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Connect Bridge Chats{% endblock %}
+{% block role %}allow{% endblock %}
+{% block main %}
+<h1>Connect {{ app }} to Bridge Chats?</h1>
+<p>{{ app }}{% if host %} ({{ host }}){% endif %} asks to use Bridge Chats for you. Allow it only if you just added
+Bridge Chats to your own AI app.{% if name %} You will appear as <strong>{{ name }}</strong> to whoever invited
+you.{% endif %}</p>
+{% include "honest.html" %}
+<p>Your AI account must be yours alone: anyone who uses it can write as you.</p>
+<form method="post">
+<input type="hidden" name="r" value="{{ ref }}">
+<button type="submit" name="choice" value="allow">Allow</button>
+<button type="submit" name="choice" value="deny">Cancel</button>
+</form>
+<p class="muted">Nothing to fill in: no email, no password. Allow makes a new account for this app. Already use
+Bridge Chats in another app? Allow anyway, then ask your AI there for a code for another app, and give it to your
+AI here.</p>
+{% endblock %}

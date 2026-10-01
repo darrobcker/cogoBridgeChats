@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>{% block title %}Bridge Chats{% endblock %}</title>
+<link rel="icon" href="/favicon.ico">
+<style>
+:root { color-scheme: light dark; --ink: #1c1c1e; --soft: #5f6368; --line: #d9d9de; }
+@media (prefers-color-scheme: dark) { :root { --ink: #f2f2f4; --soft: #a1a1aa; --line: #3a3a3f; } }
+* { box-sizing: border-box; }
+body { margin: 0; font: 17px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--ink); }
+main { max-width: 34rem; margin: 0 auto; padding: 3rem 1.25rem 4rem; }
+h1 { font-size: 1.9rem; font-weight: 600; letter-spacing: -.01em; margin: 0 0 1rem; }
+h2 { font-size: 1.05rem; font-weight: 600; margin: 2rem 0 .5rem; }
+ul { padding-left: 1.1rem; } li { margin: .3rem 0; }
+.muted { color: var(--soft); font-size: .9rem; }
+button, a.button { font: inherit; font-weight: 600; padding: .65rem 1.1rem; border: 1px solid var(--ink);
+                   border-radius: 999px; background: none; color: inherit; cursor: pointer; text-decoration: none;
+                   display: inline-block; margin: 0 .4rem .6rem 0; }
+.link { font: .85rem ui-monospace, monospace; overflow-wrap: anywhere; padding: .6rem .7rem; width: 100%;
+        border: 1px solid var(--line); border-radius: .5rem; background: none; color: inherit; resize: none;
+        display: block; margin: .3rem 0 1rem; user-select: all; }
+label { font-size: .9rem; font-weight: 600; }
+a { color: inherit; }
+</style>
+</head>
+<body class="{% block role %}page{% endblock %}"><main>{% block main %}{% endblock %}</main></body>
+</html>

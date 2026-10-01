@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}You're invited to Bridge Chats{% endblock %}
+{% block role %}invite{% endblock %}
+{% block main %}
+<h1>You're invited to Bridge Chats</h1>
+<p>Already use Bridge Chats? Press nothing: paste this page's link into your AI and say "connect". Adding it again
+would make a second account.</p>
+{% include "honest.html" %}
+<form method="post">
+<label for="name">The name people will see</label>
+<input id="name" class="link" name="name" maxlength="80" required>
+<button type="submit" name="ai" value="claude">Connect with Claude</button>
+<button type="submit" name="ai" value="chatgpt">Connect with ChatGPT</button>
+<button type="submit" name="ai" value="other">Another AI</button>
+</form>
+{% endblock %}

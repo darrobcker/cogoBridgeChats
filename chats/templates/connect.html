@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Connect your AI{% endblock %}
+{% block role %}connect{% endblock %}
+{% block main %}
+<h1>Connect your AI</h1>
+{% if ai == "claude" %}
+<p><a class="button" href="{{ claude_add }}" target="_blank" rel="noopener">Add Bridge Chats to Claude</a></p>
+<p class="muted">On a computer, once; then it works on your phone too. Press Add, Connect, then Allow. If Claude
+asks you to sign in first, sign in, then press the button again.</p>
+{% elif ai == "chatgpt" %}
+<p>On chatgpt.com in a computer's browser, with a paid plan: Settings &rarr; Security and login &rarr; Developer
+mode on. Then at chatgpt.com/plugins press +, create an app with the address below and OAuth sign-in, and press
+Allow. In each chat: + &rarr; Developer mode &rarr; Bridge Chats.</p>
+{% else %}
+<p>Add it as an MCP server with the address below and OAuth sign-in, then press Allow.</p>
+{% endif %}
+<label for="connector">Bridge Chats' address</label>
+<textarea id="connector" class="link" readonly rows="1">{{ connector }}</textarea>
+<p>Then, in a new chat, say "Check my Bridge Chats." You are connected with whoever invited you at your AI's first
+use of it, in this browser, today. If it says you have no contacts, paste the invite link and say "connect".</p>
+<label for="invite">The invite link</label>
+<textarea id="invite" class="link" readonly rows="2">{{ link }}</textarea>
+{% endblock %}
