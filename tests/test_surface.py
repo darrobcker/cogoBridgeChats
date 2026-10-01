@@ -139,6 +139,12 @@ def test_an_invite_page_pressed_from_another_site_remembers_nothing(store):
         assert forged.status_code == 403 and not forged.cookies
     assert b.post(f"/i/{token}", data={"name": "Bo"}, headers={"origin": SITE, "sec-fetch-site": "same-origin"}
                   ).cookies.get("chats_invite") == token
+    # A page that sends no referrer sends its form's origin as "null": the press from the page itself refused every
+    # time, in every real browser (review); Sec-Fetch-Site still tells them apart.
+    assert b.post(f"/i/{token}", data={"name": "Bo"}, headers={"origin": "null", "sec-fetch-site": "same-origin"}
+                  ).cookies.get("chats_invite") == token
+    assert b.post(f"/i/{token}", data={"name": "Bo"}, headers={"origin": "null", "sec-fetch-site": "cross-site"}
+                  ).status_code == 403
 
 
 def test_the_pages_say_who_can_read_what(store):
@@ -228,6 +234,30 @@ def test_no_page_can_be_framed_or_run_a_script_of_its_own(store):
         assert "script-src" not in policy and "form-action" not in policy and policy["base-uri"] == "'none'"
     for page in (Path(web.__file__).parent / "templates").glob("*.html"):
         assert not re.search(r"<script(?![^>]*\bsrc=)|\son[a-z]+=", page.read_text()), page.name
+
+
+def test_no_page_may_be_rewritten_on_the_way_or_kept(store):
+    """Cloudflare wrote its analytics script into every page on the way to the browser: a request to another site,
+    which the content policy then blocked, with an error on every visit (review). no-transform tells a proxy to pass a
+    page as it is; no-store keeps an invite's page out of every cache."""
+    ann = core.new_person(store, "Ann")
+    token = core.invite(store, ann, ["Bo"])[0]["token"]
+    b = browser(store)
+    for response in (b.get("/"), b.get(f"/i/{token}"), b.post(f"/i/{token}", data={"name": "Bo"}),
+                     b.get("/i/nope"), b.get("/allow?r=nope"), b.get("/once/x"), b.get("/nope")):
+        assert response.headers["cache-control"] == "no-store, no-transform", response.url
+
+
+def test_a_one_time_page_already_used_says_so_before_any_press(store):
+    """A used, old or made-up page offered "Show it", and only the press said it was used up."""
+    ann = core.new_person(store, "Ann")
+    token = core.settings(store, ann, run_link="new")["once"]
+    b = browser(store)
+    assert "Show it" in b.get(f"/once/{token}").text
+    b.post(f"/once/{token}")
+    for gone in (token, "made-up"):
+        page = b.get(f"/once/{gone}")
+        assert page.status_code == 404 and "used up" in page.text and "Show it" not in page.text
 
 
 def test_every_answer_says_what_it_is_and_where_it_came_from_stays_unsaid(store):

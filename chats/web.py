@@ -81,7 +81,8 @@ def create_app(store: Store, *, base_url: str, operator: str = "", theme: str = 
         response = HTMLResponse(env.get_template(template).render(operator=operator, connector=connector,
                                                               claude_add=claude_add, **context), status_code=status)
         response.headers["Content-Security-Policy"] = POLICY
-        response.headers["Cache-Control"] = "no-store"
+        # Kept by nobody, and passed as it is: Cloudflare wrote its analytics script into every page (review).
+        response.headers["Cache-Control"] = "no-store, no-transform"
         return response
 
     async def home(request: Request) -> Response:
@@ -103,10 +104,11 @@ def create_app(store: Store, *, base_url: str, operator: str = "", theme: str = 
             return page("invite_gone.html", 404)
         if request.method != "POST":        # chat apps fetch links to preview them, some by HEAD
             return page("invite.html")
-        # Only a press on this page: another site posting this form would choose the visitor's invite and name.
-        origin = request.headers.get("origin")
-        if request.headers.get("sec-fetch-site") == "cross-site" or (origin and origin != f"{own.scheme}://"
-                                                                     f"{own.netloc}"):
+        # Only a press on this page: another site posting this form would choose the visitor's invite and name. Its
+        # own form arrives with Origin "null" (these pages send no referrer), so that says nothing either way.
+        origin = request.headers.get("origin", "null")
+        if request.headers.get("sec-fetch-site") == "cross-site" or origin not in ("null", f"{own.scheme}://"
+                                                                                   f"{own.netloc}"):
             return page("invite.html", 403)
         form = await request.form()
         ai = form.get("ai", "")
@@ -149,7 +151,7 @@ def create_app(store: Store, *, base_url: str, operator: str = "", theme: str = 
     async def once(request: Request) -> Response:
         token = request.path_params["token"]
         if request.method != "POST":
-            return page("once.html")
+            return page("once.html") if core.once_waiting(store, token) else page("once_gone.html", 404)
         secret = core.reveal_once(store, token)
         return page("once.html", run_link=f"{base}/c/{secret}/mcp") if secret else page("once_gone.html", 404)
 

@@ -303,11 +303,20 @@ def _once(store: Store, pid: str) -> str:
     return token
 
 
+def _once_row(store: Store, token: str):
+    return store.one("SELECT o.* FROM once o JOIN people p ON p.id=o.person_id WHERE o.hash=? AND o.used_t IS NULL AND "
+                     "o.created_t > ? AND p.erased_t IS NULL", _hash(token or ""), store.now() - DAY)
+
+
+def once_waiting(store: Store, token: str) -> bool:
+    """Whether a one-time page still holds its link: read only, so a preview of it uses nothing up."""
+    return bool(_once_row(store, token))
+
+
 def reveal_once(store: Store, token: str) -> str | None:
     """The run link's secret, once, within a day; a page already opened, old, or of an erased person shows nothing."""
     with store.transaction():
-        row = store.one("SELECT o.* FROM once o JOIN people p ON p.id=o.person_id WHERE o.hash=? AND o.used_t IS "
-                        "NULL AND o.created_t > ? AND p.erased_t IS NULL", _hash(token or ""), store.now() - DAY)
+        row = _once_row(store, token)
         if not row:
             return None
         store.exec("UPDATE once SET used_t=?, secret='' WHERE hash=?", store.now(), row["hash"])
