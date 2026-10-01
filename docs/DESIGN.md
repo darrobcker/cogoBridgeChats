@@ -25,9 +25,11 @@ the other), so one set of instructions covering both would blur them.
 - **A copied run link reaches the delegation.** It can read the chats opened to answering, answer asks
   provisionally, and reply where answering is on, under the brakes. It cannot reach anyone new, speak as the
   person, or change anything. `run_link off` ends it, and a new one ends the old.
-- **An Allow pressed for someone else's app uses your pending invite.** For a day after an invite page's button,
-  a sign-in allowed in that browser takes the invite with it, whichever app started it. The Allow page names the app
-  and where it sends you back, and says to allow only an app you just added.
+- **An Allow pressed for someone else's app can take your pending invite, if you chose "Another AI".** For a day
+  after an invite page's button, a sign-in allowed in that browser takes the invite with it. Who chose Claude or
+  ChatGPT there gives it only to a sign-in that returns to that app; "Another AI" can be any app, so its invite goes
+  to whichever is allowed. The Allow page names the app and where it sends you back, says to allow only an app you
+  just added, and the inviter still confirms who the contact is.
 - **Names are claims.** A contact made by an invite shows as "not yet confirmed" until its maker says it is who
   they meant. Only then is a group the invite carried offered.
 - **Where a person turns answering on, their assistant can paraphrase what it knows.** It is off by default, one

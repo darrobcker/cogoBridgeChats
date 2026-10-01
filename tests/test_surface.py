@@ -41,7 +41,7 @@ def sign_in(http: TestClient, base: str = SITE, invite: str = "", name: str = ""
     """An app adding Bridge Chats, as Claude and ChatGPT do: it registers, sends its person to the Allow page —
     through the invite page first, if they came from one — and trades the code for tokens with PKCE."""
     if invite:
-        http.post(f"{base}/i/{invite}", data={"name": name, "ai": "claude"})
+        http.post(f"{base}/i/{invite}", data={"name": name, "ai": "other"})     # an app at app.test
     client = http.post(f"{base}/register", json={"redirect_uris": [CALLBACK], "client_name": "Test app",
                                                  "token_endpoint_auth_method": "none"}).json()
     verifier = secrets.token_urlsafe(48)
@@ -162,6 +162,32 @@ def test_the_allow_page_names_the_app_where_it_returns_and_the_name_and_asks_for
     page = b.get(asked.headers["location"]).text
     assert "Connect Claude to Bridge Chats?" in page and "app.test" in page and "<input" not in page.split("<form")[0]
     assert "Bo &lt;b&gt;B.&lt;/b&gt;" in page and "can read everything" in page and "minutes to hours" in page
+
+
+def test_an_invite_goes_only_to_the_app_its_holder_said_they_use(store, clock):
+    """For a day after an invite page's button, any sign-in allowed in that browser took the invite: someone else's
+    app, allowed by a person tricked into it, became the inviter's contact under their name (review). Who chose
+    Claude or ChatGPT on the page gives the invite only to a sign-in that returns to that app."""
+    clock.t = time.time()
+    ann = core.new_person(store, "Ann")
+    for ai, theirs, other in (("claude", "https://claude.ai/api/mcp/auth_callback", "https://evil.test/cb"),
+                              ("chatgpt", "https://chatgpt.com/connector_platform_oauth_redirect",
+                               "https://claude.ai/api/mcp/auth_callback")):
+        for callback, gets_it in ((other, False), (theirs, True)):
+            token = core.invite(store, ann, ["Bo"])[0]["token"]
+            b = browser(store)
+            b.post(f"/i/{token}", data={"name": "Bo", "ai": ai})
+            client = b.post("/register", json={"redirect_uris": [callback], "client_name": "An app",
+                                               "token_endpoint_auth_method": "none"}).json()
+            asked = b.get("/authorize", params={"response_type": "code", "client_id": client["client_id"],
+                                                "redirect_uri": callback, "code_challenge": "x" * 43,
+                                                "code_challenge_method": "S256", "state": "s"},
+                          follow_redirects=False)
+            ref = parse_qs(urlparse(asked.headers["location"]).query)["r"][0]
+            assert ("You will appear as" in b.get(f"/allow?r={ref}").text) is gets_it, (ai, callback)
+            b.post("/allow", data={"r": ref, "choice": "allow"}, follow_redirects=False)
+            grant = store.one("SELECT invite FROM grants ORDER BY created_t DESC, rowid DESC LIMIT 1")
+            assert bool(grant["invite"]) is gets_it, (ai, callback)
 
 
 def test_an_allow_posted_from_another_site_carries_no_invite(store, clock):

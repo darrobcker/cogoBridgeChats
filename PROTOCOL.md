@@ -146,10 +146,11 @@ and knows nobody: the connection the app then holds is the person. Nobody exists
 first tool call through a new connection makes the person, subject to the daily limits in §7. Without an invite,
 that person reaches nobody until they make one or use one (rule 1).
 
-An invite page asks for the name its holder wants people to see. Its button changes nothing on the server: it
-remembers the invite and the name in that browser for a day, in cookies holding those and nothing else, and sends
-the person on to add Bridge Chats to their AI. The first call of a connection allowed in that browser makes the
-person under that name and uses the invite, if it still works. Where it did not come through (another browser, an
+An invite page asks for the name its holder wants people to see, and which AI they use. Its button changes nothing
+on the server: it remembers the invite, the name and the app in that browser for a day, in cookies holding those and
+nothing else, and sends the person on to add Bridge Chats to their AI. A press posted from another site is refused.
+The first call of a connection allowed in that browser makes the person under that name and uses the invite, if it
+still works and, where they named an app the server knows, if the sign-in returns to that app. Where it did not come through (another browser, an
 app's own sign-in window, an invite used meanwhile) the person pastes the invite into the chat and says "connect",
 as anyone already there does.
 

@@ -29,8 +29,15 @@ DAY, YEAR = "public, max-age=86400", "public, max-age=31536000, immutable"
 # Chrome holds a form's redirect to it too, and Allow's answer goes on to the app that asked.
 POLICY = ("default-src 'self'; img-src 'self' blob:; style-src 'self' 'unsafe-inline'; object-src 'none'; "
           "base-uri 'none'; frame-ancestors 'none'")
-AIS = ("claude", "chatgpt")                     # anything else is "another AI"
-INVITE, NAME = "chats_invite", "chats_name"     # the cookies: an invite's token, the name typed beside it; no more
+# Where each app's sign-in returns: an invite whose holder chose one of these goes only to a sign-in that returns
+# there, so another app, allowed by someone tricked into it, cannot take it. "Another AI" can be anything.
+APPS = {"claude": ("claude.ai", "claude.com"), "chatgpt": ("chatgpt.com", "openai.com")}
+INVITE, NAME, AI = "chats_invite", "chats_name", "chats_ai"     # the cookies: the invite, the name, the app; no more
+
+
+def _their_app(ai: str, redirect_uri: str) -> bool:
+    host = urlparse(redirect_uri).hostname or ""
+    return ai not in APPS or any(host == d or host.endswith("." + d) for d in APPS[ai])
 
 
 class _Kept(StaticFiles):
@@ -103,9 +110,11 @@ def create_app(store: Store, *, base_url: str, operator: str = "", theme: str = 
             return page("invite.html", 403)
         form = await request.form()
         ai = form.get("ai", "")
-        response = page("connect.html", ai=ai if ai in AIS else "other", link=f"{base}/i/{token}")
+        ai = ai if ai in APPS else "other"
+        response = page("connect.html", ai=ai, link=f"{base}/i/{token}")
         # Lax: an Allow form posted from another site does not carry them.
-        for key, value in ((INVITE, token), (NAME, quote(str(form.get("name", "")).strip()[:core.NAME_MAX]))):
+        for key, value in ((INVITE, token), (NAME, quote(str(form.get("name", "")).strip()[:core.NAME_MAX])),
+                           (AI, ai)):
             response.set_cookie(key, value, max_age=86400, httponly=True, samesite="lax", secure=secure)
         return response
 
@@ -118,6 +127,8 @@ def create_app(store: Store, *, base_url: str, operator: str = "", theme: str = 
         if waiting is None:
             return page("expired.html", 400)
         token = request.cookies.get(INVITE, "")[:64]
+        if not _their_app(request.cookies.get(AI, "other"), waiting["redirect_uri"]):
+            token = ""
         invited = bool(token) and core.invite_page(store, token)
         name = unquote(request.cookies.get(NAME, ""))[:core.NAME_MAX] if invited else ""
         if request.method != "POST":
