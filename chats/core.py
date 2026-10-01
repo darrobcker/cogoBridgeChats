@@ -786,7 +786,8 @@ def reply(store: Store, pid: str, link: str, chat_id: str, upto: int, text: str 
         _alive(store, pid)
         me = _member(store, pid, chat_id)
         person = store.one("SELECT * FROM people WHERE id=?", pid)
-        if link == "run" and not me["answering"] and not answer:
+        # In a chat not opened to answering, a run link may only answer an ask: nothing else of it is its (rule 5).
+        if link == "run" and not me["answering"] and (not answer or text or note is not None or flag is not None):
             raise NotYours()
         out: dict = {}
         if note is not None:
