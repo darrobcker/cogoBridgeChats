@@ -18,7 +18,12 @@ the other), so one set of instructions covering both would blur them.
 
 ## What does not hold, said plainly
 
-- **The operator can read everything.** There is no end-to-end encryption.
+- **The operator cannot read what is kept, but sees what is delivered.** Everything anyone writes is stored locked
+  (rule 18): the database and its backups open nothing without a member's connection. While a call runs, what it
+  carries is in the server's memory, and Cloudflare, which carries its traffic, sees it: that it goes no further
+  rests on the server running its published code. There is no end-to-end encryption, which needs the key to stay in
+  each person's own app. The server sees who is in which chat, when, and how much. Losing every app loses what was
+  locked for you: nobody, the operator included, can open it again.
 - **Whoever uses a person's AI account is that person here.** A connection is the app that holds it. `mine` shows
   what was done in their name, and through which door; `new_link` gives a code whose use ends every other
   connection and the run link.

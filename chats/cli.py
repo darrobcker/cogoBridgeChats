@@ -1,6 +1,7 @@
 """Operator commands. Configuration is environment variables: CHATS_HOME (where the database lives, default
 ~/.chats), CHATS_BASE_URL (this server's public https address), CHATS_OPERATOR (who runs it, named on every page and
-to every assistant), CHATS_THEME (a directory with a look of its own: docs/OPERATIONS.md)."""
+to every assistant), CHATS_SOURCE (where the code it runs is published, linked from the pages), CHATS_THEME (a
+directory with a look of its own: docs/OPERATIONS.md)."""
 from __future__ import annotations
 
 import argparse
@@ -13,7 +14,7 @@ import threading
 import time
 from pathlib import Path
 
-from . import core
+from . import core, vault
 
 HOME = Path(os.environ.get("CHATS_HOME", Path.home() / ".chats"))
 
@@ -48,9 +49,10 @@ def main(argv: list[str] | None = None) -> None:
         if args.tunnel:
             base = _quick_tunnel(args.port)
         print(f"Bridge Chats: {base}/mcp", file=sys.stderr)
+        core.report_key(store)          # its private half beside the database, made once, before anyone reports
         # No access log: a run link carries its secret in the URL, and sign-in its request.
         uvicorn.run(create_app(store, base_url=base, operator=os.environ.get("CHATS_OPERATOR", ""),
-                               theme=os.environ.get("CHATS_THEME", "")),
+                               theme=os.environ.get("CHATS_THEME", ""), source=os.environ.get("CHATS_SOURCE", "")),
                     host=args.host, port=args.port, log_level="info", access_log=False)
     elif args.cmd == "code":
         try:
@@ -68,8 +70,11 @@ def main(argv: list[str] | None = None) -> None:
                                                               "GROUP BY voice", week)}}
         print(json.dumps(out, indent=1))
     elif args.cmd == "reports":
-        for r in store.all("SELECT * FROM reports ORDER BY t"):
-            print(json.dumps(dict(r), indent=1))
+        # Opened with the report key's private half, kept beside the database: what members chose to report.
+        key = HOME / "report.key"
+        private = vault.decode(key.read_text().strip()) if key.exists() else b""
+        for r in core.read_reports(store, private) if private else []:
+            print(json.dumps(r, indent=1))
 
 
 def _quick_tunnel(port: int) -> str:

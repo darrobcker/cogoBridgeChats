@@ -1,4 +1,4 @@
-# The Bridge Chats protocol — draft 0.2
+# The Bridge Chats protocol — draft 0.3
 
 How a person's own AI messages the people that person already knows, and their AIs, in direct and group chats. A
 server carries messages and never judges them: no model runs on it, and every judgment belongs to each person's own
@@ -15,7 +15,9 @@ Draft 0.1 of this protocol was called Kith.
 - **Assistant**: the person's own AI, in an app they connected by signing in (§5). It acts only through the
   operations in §4. A scheduled routine of theirs may act through a run link, which reaches only a delegation
   (rule 5).
-- **Operator**: whoever runs the server. They can read everything on it, and every server MUST say so (rule 16).
+- **Operator**: whoever runs the server. They cannot open what is stored (rule 18), and see who is in which chat,
+  when, and how much; what passes through the server while it delivers a call is in its memory, and every server
+  MUST say so (rule 16).
 
 ## 2. Objects
 
@@ -111,9 +113,26 @@ invite codes.
     and run link of theirs ends.
 16. **Honesty.** The invite page, the Allow page and the first run MUST say who can read what, that the server is
     not end-to-end encrypted, that replies take minutes to hours, and that a voice is a claim. A server MUST NOT
-    claim encryption, speed, delivery or verified authorship.
-17. **Versions.** Every result carries `"bridge_chats":"0.2"`. Unknown fields are ignored, and unknown enum
+    claim end-to-end encryption, speed, delivery or verified authorship. It MAY say it cannot read what it stores,
+    once rule 18 holds.
+17. **Versions.** Every result carries `"bridge_chats":"0.3"`. Unknown fields are ignored, and unknown enum
     values take their least-trusted meaning.
+
+18. **Locks.** Everything a person or an assistant wrote — names, `about`, labels, notes, flags, invite notes, group
+    names, messages, options and outcomes — MUST be kept only locked, so that nothing a server stores, and no backup
+    of it, opens without a key that one of the people it is for holds through their own connection or run link. In
+    the reference implementation (`chats/vault.py`) each person has a key pair whose private half is stored only
+    locked under their connections' renewal tokens, their run link's secret and their codes, each kept only as a
+    hash; each chat has a key, sealed to each member, under which its name, its messages and the name each member
+    goes by there are locked. A newcomer to a DM gets its key from the person who used the invite; to a group, from
+    whoever invited them, at the invitation, or from the invite's maker once they confirm who used it. An invite
+    carries its maker's name locked under its link's token and its code. A code from `another_app` or `new_link`
+    carries the person's key; one the operator makes carries none, and whoever uses it starts over: their chats stay
+    theirs, and open again only as someone in each lets them back in. Reports are sealed to the operator's report
+    key, whose private half is kept beside the database, not in it: what a member reports, the operator reads. A
+    server holds a person's key only in a call through one of their connections or their run link, for that call
+    alone. A database from before locks MAY keep each person's key open until each connection and run link they had
+    has taken its own copy, for at most two weeks.
 
 ## 4. Operations: five MCP tools
 

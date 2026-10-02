@@ -15,7 +15,7 @@ from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import Icon, ToolAnnotations
 
-from . import core, views
+from . import core, vault, views
 from .core import NotYours, Refused
 from .store import Store
 
@@ -26,8 +26,8 @@ def instructions(operator: str = "") -> str:
     runs = f"{operator} runs this server" if operator else "Whoever runs this server"
     return f"""Bridge Chats: your person messages people they know, and their AIs, in DMs and group chats. Start \
 each chat with chats_inbox. Your person's own words go out only with chats_send, with them, this turn. chats_reply \
-is yours: labelled so, only where they turned answering on, never a commitment. {runs} can read everything; not \
-end-to-end encrypted; replies take minutes to hours. Tell your person only what needs them.
+is yours: labelled so, only where they turned answering on, never a commitment. {runs} but cannot open what is \
+stored; not end-to-end encrypted; replies take hours. Tell your person only what needs them.
 
 - Nobody can reach your person except through an invite they made or used themselves, and a group they accepted.
   To add someone: chats_people invite, `names` one or several; give your person the one message it returns to
@@ -71,16 +71,21 @@ _SECRET = re.compile(r"/c/([A-Za-z0-9_\-]+)/")
 
 
 def _refusals(fn):
+    """The two kinds of no, and a lock this connection cannot open, as messages an assistant is given; and the keys a
+    call opens, held for that call alone."""
     @functools.wraps(fn)
     def wrapper(*args, **kwargs):
-        try:
-            return fn(*args, **kwargs)
-        except NotYours as exc:
-            raise ToolError(_NOT_YOURS) from exc
-        except Refused as exc:
-            raise ToolError(str(exc)) from exc
-        finally:
-            core.flush_nudges(wrapper.store)
+        with vault.keys():
+            try:
+                return fn(*args, **kwargs)
+            except NotYours as exc:
+                raise ToolError(_NOT_YOURS) from exc
+            except Refused as exc:
+                raise ToolError(str(exc)) from exc
+            except vault.Locked as exc:
+                raise ToolError(core.LOCKED) from exc
+            finally:
+                core.flush_nudges(wrapper.store)
     return wrapper
 
 
@@ -107,7 +112,7 @@ def create_mcp(store: Store, *, base_url: str, operator: str = "", version: str 
         if not (token and token.subject):
             raise NotYours()
         core.sweep(store)
-        return core.person_for_grant(store, token.subject), "app"
+        return core.person_for_grant(store, token.subject, token.token), "app"
 
     def grant(ctx: Context) -> str:
         token = getattr(ctx.request_context.request.scope.get("user"), "access_token", None)
@@ -236,7 +241,8 @@ def create_mcp(store: Store, *, base_url: str, operator: str = "", version: str 
                                  "days, then it is gone"})
         shown: dict = {}
         if code:
-            outcome, pid = core.use_link_code(store, pid, grant(ctx), code)
+            token = getattr(ctx.request_context.request.scope.get("user"), "access_token", None)
+            outcome, pid = core.use_link_code(store, pid, grant(ctx), code, token.token if token else "")
             shown["code"] = {core.ALREADY_LINKED: "that code is this account's own; nothing changed",
                              core.LINKED: "done: this app is now the same account as their other one, which keeps "
                                           "working",
@@ -257,7 +263,7 @@ def create_mcp(store: Store, *, base_url: str, operator: str = "", version: str 
             shown["nudges"] = (f"install the ntfy app and subscribe to {out['nudge_topic']} (server ntfy.sh), or "
                                f"open https://ntfy.sh/{out['nudge_topic']}: it only ever says something is waiting")
         person = store.one("SELECT name, answer_asks, paused, topic FROM people WHERE id=?", pid)
-        return views.render({**shown, "settings": {"name": views.mark(person["name"]),
+        return views.render({**shown, "settings": {"name": views.mark(core._mine(pid, person["name"], "name")),
                                                    "answer_asks": bool(person["answer_asks"]),
                                                    "paused": bool(person["paused"]), "nudges": bool(person["topic"])}})
 

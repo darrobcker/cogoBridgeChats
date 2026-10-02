@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 
 import pytest
-from conftest import connection
+from conftest import TOKENS, connection, first_call
 
 from chats import core, views
 from chats.core import NotYours, Refused
@@ -360,7 +360,7 @@ def test_a_chat_page_is_bounded(world, store):
 def test_erasing_ends_every_call_and_leaves_what_others_received(world, store):
     world.person("Ann")
     grant, access = connection(store)
-    world.p["Bo"] = bo = core.person_for_grant(store, grant)
+    world.p["Bo"] = bo = first_call(store, grant)
     dm = world.contact("Ann", "Bo")
     secret = core.reveal_once(store, core.settings(store, bo, run_link="new")["once"])
     code = core.link_code(store, bo, replace=False)
@@ -370,10 +370,10 @@ def test_erasing_ends_every_call_and_leaves_what_others_received(world, store):
     core.erase(store, bo, "delete everything")
     assert core.person_for_run_link(store, secret) is None and core.access(store, access) is None
     with pytest.raises(NotYours):
-        core.person_for_grant(store, grant)
+        first_call(store, grant)
     other, _ = connection(store)
     with pytest.raises(Refused):
-        core.use_link_code(store, core.person_for_grant(store, other), other, code)
+        core.use_link_code(store, first_call(store, other), other, code)
     with pytest.raises(NotYours):
         core.send(store, world.p["Bo"], dm, "still me")
     shown = chat(store, world.p["Ann"], dm)["messages"]
@@ -468,7 +468,7 @@ def test_a_blocked_person_s_asks_are_not_shown(world, store):
 
 def signed_in(store, invite: str = "", name: str = "") -> tuple[str, str]:
     grant, _ = connection(store, invite=invite, name=name)
-    return grant, core.person_for_grant(store, grant)
+    return grant, first_call(store, grant)
 
 
 def test_a_connection_makes_its_person_at_its_first_call_and_uses_its_invite_then(world, store):
@@ -478,8 +478,8 @@ def test_a_connection_makes_its_person_at_its_first_call_and_uses_its_invite_the
     token = core.invite(store, world.p["Ann"], ["Bo"])[0]["token"]
     grant, _ = connection(store, invite=token, name="Bo B.")
     assert store.one("SELECT COUNT(*) n FROM people")["n"] == 1 and core.invite_page(store, token)
-    bo = core.person_for_grant(store, grant)
-    assert core.person_for_grant(store, grant) == bo and not core.invite_page(store, token)
+    bo = first_call(store, grant)
+    assert first_call(store, grant) == bo and not core.invite_page(store, token)
     used = index(store, world.p["Ann"])["needs_you"][0]["invite_used"]
     assert used["for"] == "<<<Bo>>>" and used["calls_themselves"] == "<<<Bo B.>>>"
 
@@ -491,10 +491,10 @@ def test_an_invite_used_meanwhile_leaves_a_connection_that_reaches_nobody(world,
     token = core.invite(store, world.p["Ann"], ["Bo"])[0]["token"]
     first, _ = connection(store, invite=token, name="Bo")
     second, _ = connection(store, invite=token, name="Mallory")
-    core.person_for_grant(store, first)
-    late = core.person_for_grant(store, second)
+    first_call(store, first)
+    late = first_call(store, second)
     assert not store.one("SELECT 1 FROM members WHERE person_id=?", late)
-    assert store.one("SELECT name FROM people WHERE id=?", late)["name"] == "Mallory"      # chosen before it died
+    assert core._mine(late, store.one("SELECT name FROM people WHERE id=?", late)["name"], "name") == "Mallory"
     gone, _ = connection(store, invite=token, name="Eve")
     assert store.one("SELECT name FROM grants WHERE id=?", gone)["name"] == ""
 
@@ -517,7 +517,7 @@ def test_a_code_for_another_app_adds_a_connection_and_ends_nothing(world, store)
     other, empty = signed_in(store)
     assert core.use_link_code(store, empty, other, core.link_code(store, pid, replace=False)) == (core.LINKED, pid)
     for g in (grant, other):
-        assert core.person_for_grant(store, g) == pid
+        assert first_call(store, g) == pid
     assert store.one("SELECT erased_t FROM people WHERE id=?", empty)["erased_t"] is not None
 
 
@@ -530,13 +530,13 @@ def test_a_new_link_code_ends_every_other_connection_and_run_link_once_used_and_
     core.use_link_code(store, empty, theirs, core.link_code(store, pid, replace=False))
     run = core.reveal_once(store, core.settings(store, pid, run_link="new")["once"])
     code = core.link_code(store, pid, replace=True)
-    assert core.person_for_grant(store, mine) == pid and core.person_for_run_link(store, run) == pid
+    assert first_call(store, mine) == pid and core.person_for_run_link(store, run) == pid
     fresh, empty = signed_in(store)
     assert core.use_link_code(store, empty, fresh, code) == (core.MOVED, pid)
-    assert core.person_for_grant(store, fresh) == pid and core.person_for_run_link(store, run) is None
+    assert first_call(store, fresh) == pid and core.person_for_run_link(store, run) is None
     for ended in (mine, theirs):
         with pytest.raises(NotYours):
-            core.person_for_grant(store, ended)
+            first_call(store, ended)
 
 
 def test_a_code_works_once_within_the_hour_and_a_newer_one_replaces_it(store, clock):
@@ -601,4 +601,134 @@ def test_the_sweep_clears_what_sign_in_leaves_behind(store, clock):
     core.sweep(store)
     assert store.one("SELECT id FROM grants WHERE id=?", unused) is None and core.client(store, "idle") is None
     assert not store.one("SELECT 1 FROM link_codes") and not store.one("SELECT 1 FROM tokens WHERE kind='request'")
-    assert core.person_for_grant(store, working) == pid and core.client(store, "app")
+    assert first_call(store, working) == pid and core.client(store, "app")
+
+
+# -- rule 18: locks --------------------------------------------------------------------------------------------------
+
+def _a_week_of_chats(world, store) -> set[str]:
+    """People going about their week — a DM, a group with an ask, notes, flags, labels, an invite out, a report — and
+    every string anyone wrote in it."""
+    world.person("Ann Lee")
+    world.person("Bo Park")
+    world.person("Cy Hart")
+    dm = world.contact("Ann Lee", "Bo Park")
+    world.contact("Ann Lee", "Cy Hart")
+    group = world.group("Ann Lee", "Saturday Climbers", "Bo Park", "Cy Hart")
+    ann, bo = world.p["Ann Lee"], world.p["Bo Park"]
+    core.settings(store, ann, about="answer only about climbing")
+    core.send(store, ann, dm, "Dinner at Nopa on Friday?")
+    core.send(store, ann, group, "Which crag on Saturday?", ask={"options": ["Castle Rock", "Mickey's Beach"]})
+    core.settings(store, bo, answering={"chat": dm, "on": "on"})
+    chat(store, bo, dm)                                   # read first: an assistant replies only to what it read
+    core.reply(store, bo, "app", dm, world.seq(dm), "Bo will confirm tonight", note="Bo prefers Fridays",
+               flag="needs Bo to choose a restaurant")
+    core.invite(store, ann, ["Dee from the gym"])
+    core.report(store, bo, dm, 1, "Ann keeps asking about dinner")
+    return {"Ann Lee", "Bo Park", "Cy Hart", "answer only about climbing", "Dinner at Nopa", "Saturday Climbers",
+            "Which crag", "Castle Rock", "Mickey's Beach", "Bo will confirm", "Bo prefers Fridays",
+            "needs Bo to choose", "Dee from the gym", "Ann keeps asking"}
+
+
+def test_nothing_anyone_wrote_is_kept_readable(world, store, tmp_path):
+    """Rule 18: names, rules, labels, notes, flags, invite notes, group names, messages and options are in the
+    database only locked, and so in every backup; a report too, sealed to the operator's key kept outside it."""
+    written = _a_week_of_chats(world, store)
+    kept = json.dumps([(t, [tuple(r) for r in store.all(f"SELECT * FROM {t}")]) for t in (
+        r["name"] for r in store.all("SELECT name FROM sqlite_master WHERE type='table'"))])
+    assert not [w for w in written if w in kept]
+    copy = tmp_path / "copy.db"
+    store.db.execute(f"VACUUM INTO '{copy}'")
+    assert not [w for w in written if w.encode() in copy.read_bytes()]
+    reports = core.read_reports(store, store.report_private)
+    assert reports[0]["why"] == "Ann keeps asking about dinner"
+    assert reports[0]["copy"][0]["text"] == "Dinner at Nopa on Friday?"
+
+
+def test_the_server_alone_opens_nothing_and_each_reads_their_own(world, store, keys):
+    """With no connection behind a call, nothing opens; holding only their own key, each reads what is theirs."""
+    _a_week_of_chats(world, store)
+    everyone = dict(keys)
+    keys.clear()
+    with pytest.raises(core.vault.Locked):
+        index(store, world.p["Bo Park"])
+    for name in ("Ann Lee", "Bo Park", "Cy Hart"):
+        keys.clear()
+        keys[world.p[name]] = everyone[world.p[name]]
+        seen = everything(store, world.p[name])
+        assert "Saturday Climbers" in seen and "Which crag on Saturday?" in seen, name
+    dm = store.one("SELECT id FROM chats WHERE kind='dm' ORDER BY rowid LIMIT 1")["id"]     # Ann's and Bo's
+    for name in ("Ann Lee", "Bo Park"):
+        keys.clear()
+        keys[world.p[name]] = everyone[world.p[name]]
+        assert "Dinner at Nopa" in views.chat(store, world.p[name], "app", dm, before=3), name
+
+
+def test_a_live_database_from_before_comes_over_whole_and_locked(tmp_path, keys):
+    """The live database is at schema 1, everything as written. Opened by this code, everything is locked, nothing of
+    it is left in the file, and each person's key is kept open only until each connection and run link they had
+    takes its own copy, at its next use (rule 18)."""
+    import sqlite3
+    from pathlib import Path
+    path = tmp_path / "live.db"
+    db = sqlite3.connect(path)
+    db.executescript((Path(__file__).parent / "schema1.sql").read_text())
+    t = 1_790_000_000.0
+    db.executemany("INSERT INTO people(id, name, about, created_t) VALUES (?,?,?,?)",
+                   [("p-ann", "Ann Lee", "answer only about climbing", t), ("p-bo", "Bo Park", "", t)])
+    db.execute("INSERT INTO chats(id, kind, pair, seq, created_t) VALUES ('c-dm', 'dm', 'p-ann|p-bo', 1, ?)", (t,))
+    db.executemany("INSERT INTO members(chat_id, person_id, state, number, label, t) VALUES (?,?,?,?,?,?)",
+                   [("c-dm", "p-ann", "joined", 1, "Bo from climbing", t), ("c-dm", "p-bo", "joined", 2, "Ann", t)])
+    db.execute("INSERT INTO messages(chat_id, seq, sender_id, voice, kind, text, t) VALUES "
+               "('c-dm', 1, 'p-ann', 'person', 'text', 'Dinner at Nopa on Friday?', ?)", (t,))
+    db.execute("INSERT INTO invites(id, hash, code, maker_id, note, created_t, expires_t) VALUES "
+               "('i-1', 'h', 'abcdefghjk', 'p-ann', 'Dee from the gym', ?, ?)", (t, t + 7e5))
+    secret = "r" * 32
+    db.execute("INSERT INTO run_links VALUES (?, 'p-bo', ?, NULL)", (core._hash(secret), t))
+    db.commit()
+    db.close()
+    keys.clear()                                          # nobody's key is in anyone's hand: a migration has none
+    store = core.open_store(path)
+    store.set_clock(lambda: t + 60)
+    assert store.one("PRAGMA user_version")[0] == 2 and store.one("SELECT COUNT(*) n FROM escrow")["n"] == 2
+    store.db.close()
+    raw = path.read_bytes()
+    words = ("Ann Lee", "Bo Park", "climbing", "Dinner at Nopa", "Dee from the gym", "abcdefghjk")
+    assert not [w for w in words if w.encode() in raw]
+    store = core.open_store(path)
+    store.set_clock(lambda: t + 60)
+    with core.vault.keys():
+        assert core.person_for_run_link(store, secret) == "p-bo"          # its link takes its copy of his key
+        core.settings(store, "p-bo", answering={"chat": "c-dm", "on": "on"})
+    keys.clear()
+    with core.vault.keys():
+        assert core.person_for_run_link(store, secret) == "p-bo"
+        shown = json.loads(views.chat(store, "p-bo", "run", "c-dm"))
+    assert shown["messages"][0]["text"] == "<<<Dinner at Nopa on Friday?>>>"
+    assert not store.one("SELECT 1 FROM escrow WHERE person_id='p-bo'")
+    keys.clear()                                          # a used code brings its maker's name over
+    with core.vault.keys():
+        new = core.new_person(store, "Dee")
+        assert core.connect(store, new, "abcdefghjk")["calls_themselves"] == "Ann Lee"
+
+
+def test_a_code_carries_the_key_and_one_the_operator_made_starts_over(world, store, keys):
+    """A code from the person's own chat carries their key; the operator's carries none, the operator holding no key,
+    so whoever uses it starts over: their chats stay, and open again as someone in each lets them back in."""
+    world.person("Ann")
+    grant, _ = connection(store)
+    world.p["Bo"] = first_call(store, grant)
+    dm = world.contact("Ann", "Bo")
+    core.send(store, world.p["Ann"], dm, "hello Bo")
+    other, _ = connection(store)
+    empty = first_call(store, other)
+    core.use_link_code(store, empty, other, core.link_code(store, world.p["Bo"], replace=False), TOKENS[other])
+    keys.clear()
+    first_call(store, other)
+    assert "hello Bo" in everything(store, world.p["Bo"])
+    lost = core.link_code(store, world.p["Bo"], replace=True)
+    store.exec("UPDATE link_codes SET person_key='' WHERE person_id=?", world.p["Bo"])   # as the operator's has it
+    fresh, _ = connection(store)
+    keys.clear()
+    core.use_link_code(store, first_call(store, fresh), fresh, lost, TOKENS[fresh])
+    assert "hello Bo" not in everything(store, world.p["Bo"])

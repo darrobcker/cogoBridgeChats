@@ -61,8 +61,9 @@ def _version() -> str:
         return "dev"
 
 
-def create_app(store: Store, *, base_url: str, operator: str = "", theme: str = "") -> Starlette:
-    """`operator` is who runs this server, named on the pages because they can read everything. `theme`: a directory
+def create_app(store: Store, *, base_url: str, operator: str = "", theme: str = "", source: str = "") -> Starlette:
+    """`operator` is who runs this server, named on the pages, which say what they cannot read; `source`, where the
+    code it runs is published, linked from them. `theme`: a directory
     whose `templates/` are found before these and whose `static/` is served at /static, a server's own look; the
     words that say who can read what before anyone presses a button stay these."""
     here = Path(__file__).parent
@@ -78,7 +79,7 @@ def create_app(store: Store, *, base_url: str, operator: str = "", theme: str = 
     secure, own = base.startswith("https"), urlparse(base)
 
     def page(template: str, status: int = 200, **context) -> HTMLResponse:
-        response = HTMLResponse(env.get_template(template).render(operator=operator, connector=connector,
+        response = HTMLResponse(env.get_template(template).render(operator=operator, connector=connector, source=source,
                                                               claude_add=claude_add, **context), status_code=status)
         response.headers["Content-Security-Policy"] = POLICY
         # Kept by nobody, and passed as it is: Cloudflare wrote its analytics script into every page (review).

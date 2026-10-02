@@ -6,7 +6,8 @@ same, and that its operator knows when it is down.
 ## How it runs
 
 - The server: `uv run chats serve --port 8771`, with `CHATS_BASE_URL` (its public https address) and
-  `CHATS_OPERATOR` (who runs it, named on every page and to every assistant, because they can read everything).
+  `CHATS_OPERATOR` (who runs it, named on every page and to every assistant, which say what they cannot read) and
+  `CHATS_SOURCE` (where the code it runs is published, linked from the pages).
   It listens on 127.0.0.1 only; a tunnel or a reverse proxy carries the public address to it.
 - `scripts/tick` every ten minutes: backups, trimming logs, alerts (below).
 
@@ -64,9 +65,23 @@ d=$(mktemp -d) && cp "$(ls -t ~/.chats-backups/chats-*.db | head -1)" "$d/chats.
 
 A connection is whoever holds the app it is in. Someone who removed Bridge Chats from their only app, or lost
 that app account, has a new, empty account the next time they add it. If it still works in another app of theirs,
-that app gives a code (`chats_settings another_app`). If not, the operator makes one, `uv run chats code <person
-id>`, and sends it only to them through a channel they already trust, never the one the request came in: its use
-ends every other connection of theirs.
+that app gives a code (`chats_settings another_app`). If not, nobody can bring their chats back: everything in
+them is locked under keys only their connections held (PROTOCOL.md rule 18). `uv run chats code <person id>` still
+makes a code for a person id the operator somehow has, sent only to them through a channel they already trust; its
+use ends every other connection of theirs, and they start over: their chats stay theirs, and open again only as
+someone in each lets them back in.
+
+## Locks and reports
+
+What anyone writes is stored locked (`chats/vault.py`): the database and its backups open nothing without a
+member's connection, and the operator holds no key. `chats stats` still gives counts. The move to locks (schema 2)
+kept each person's key open in `escrow` until each connection and run link they already had took its own copy at
+its next use, for at most two weeks; backups from before it hold what was written then in the clear until they age
+out, and the one the deploy takes just before it is the way back, since code from before refuses schema 2.
+
+A member's report is sealed to the operator's report key, made at the first `serve`: its public half is in the
+database, its private half in `report.key` beside it, 0600, never in a backup. `chats reports` opens them with it.
+Keep that file: without it no report opens.
 
 ## A look of its own
 

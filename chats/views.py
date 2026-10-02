@@ -42,11 +42,13 @@ def render(obj: dict) -> str:
 
 
 def _contacts(store: Store, pid: str) -> dict[str, dict]:
-    """The other person of each DM of this person's, with this person's label for them."""
-    rows = store.all("SELECT m.chat_id, m.label, m.confirmed, o.person_id FROM members m JOIN chats c ON "
+    """The other person of each DM of this person's, with this person's label for them, opened with their key."""
+    rows = store.all("SELECT m.chat_id, m.label, m.confirmed, o.person_id, o.shown FROM members m JOIN chats c ON "
                      "c.id=m.chat_id JOIN members o ON o.chat_id=m.chat_id AND o.person_id<>m.person_id WHERE "
                      "c.kind='dm' AND m.person_id=?", pid)
-    return {r["person_id"]: dict(r) for r in rows}
+    return {r["person_id"]: {**dict(r), "label": core._mine(pid, r["label"], "label"),
+                             "calls_themselves": core._in_chat(store, pid, r["chat_id"], r["shown"], "name")}
+            for r in rows}
 
 
 def who(store: Store, viewer: str, other: str | None, chat_id: str, contacts: dict, blocked: set) -> str:
@@ -54,7 +56,7 @@ def who(store: Store, viewer: str, other: str | None, chat_id: str, contacts: di
         return "nobody"
     if other == viewer:
         return "you"
-    person = store.one("SELECT name, erased_t FROM people WHERE id=?", other)
+    person = store.one("SELECT erased_t FROM people WHERE id=?", other)
     if not person or person["erased_t"]:
         return "someone who has left"
     if other in blocked:
@@ -62,14 +64,14 @@ def who(store: Store, viewer: str, other: str | None, chat_id: str, contacts: di
     if other in contacts:
         c = contacts[other]
         return mark(c["label"]) + ("" if c["confirmed"] else " (not yet confirmed as who you meant)")
-    row = store.one("SELECT number, invited_by FROM members WHERE chat_id=? AND person_id=?", chat_id, other)
+    row = store.one("SELECT number, invited_by, shown FROM members WHERE chat_id=? AND person_id=?", chat_id, other)
     by = who(store, viewer, row["invited_by"], chat_id, contacts, blocked) if row and row["invited_by"] else "nobody"
-    return (f"member {row['number'] if row else '?'}, not your contact, calls themselves {mark(person['name'])}, "
-            f"invited by {by}")
+    name = core._in_chat(store, viewer, chat_id, row["shown"], "name") if row else ""
+    return f"member {row['number'] if row else '?'}, not your contact, calls themselves {mark(name)}, invited by {by}"
 
 
 def _tally(store: Store, ask, number: int, pid: str) -> dict:
-    options = json.loads(ask["options"])
+    options = json.loads(core._in_chat(store, pid, ask["chat_id"], ask["options"], "options") or "[]")
     counts = [{"option": mark(o), "confirmed": 0, "provisional": 0} for o in options]
     mine = None
     for a in store.all("SELECT * FROM answers WHERE chat_id=? AND ask_seq=?", ask["chat_id"], ask["seq"]):
@@ -77,7 +79,8 @@ def _tally(store: Store, ask, number: int, pid: str) -> dict:
             counts[c]["confirmed" if a["voice"] == "person" else "provisional"] += 1
         if a["person_id"] == pid:
             mine = {"choice": json.loads(a["choice"]), "provisional": a["voice"] != "person"}
-    return {"ask": ask["seq"], "question": mark(ask["text"]), "multi": bool(ask["multi"]), "due": _t(ask["due_t"]),
+    return {"ask": ask["seq"], "question": mark(core._in_chat(store, pid, ask["chat_id"], ask["text"], "message")),
+            "multi": bool(ask["multi"]), "due": _t(ask["due_t"]),
             "for_you": core._addressed(ask, number), "tally": counts, "your_answer": mine}
 
 
@@ -116,21 +119,24 @@ def index(store: Store, pid: str, link: str) -> str:
         unread = [x for x in core._visible(store, pid, m["chat_id"], read, limit=1000) if x["sender_id"] != pid]
         if unread:
             other = None if m["kind"] == "group" else (core._dm_others(store, m["chat_id"], pid) or [None])[0]
-            chats.append({"chat": m["chat_id"], "with": mark(m["name"]) if m["kind"] == "group" else
+            chats.append({"chat": m["chat_id"], "with": mark(core._in_chat(store, pid, m["chat_id"], m["name"],
+                                                                         "group name")) if m["kind"] == "group" else
                           who(store, pid, other, m["chat_id"], contacts, blocked), "unread": len(unread),
                           "from_a_person": sum(x["voice"] == "person" for x in unread),
                           "answering": bool(m["answering"])})
         if not run and m["flag"]:
-            needs.append({"flag": m["chat_id"], "note": mark(m["flag"]), "since": _t(m["flag_t"])})
+            needs.append({"flag": m["chat_id"], "note": mark(core._mine(pid, m["flag"], "flag")),
+                          "since": _t(m["flag_t"])})
     if not run:
         for inv in store.all("SELECT m.chat_id, m.invited_by, c.name FROM members m JOIN chats c ON c.id=m.chat_id "
                              "WHERE m.person_id=? AND m.state='invited'", pid):
             needs.append({"invitation": _preview(store, pid, inv, contacts, blocked)})
-        for c in store.all("SELECT m.chat_id, m.label, o.person_id FROM members m JOIN chats ch ON ch.id=m.chat_id "
-                           "JOIN members o ON o.chat_id=m.chat_id AND o.person_id<>m.person_id WHERE "
+        for c in store.all("SELECT m.chat_id, m.label, o.person_id, o.shown FROM members m JOIN chats ch ON "
+                           "ch.id=m.chat_id JOIN members o ON o.chat_id=m.chat_id AND o.person_id<>m.person_id WHERE "
                            "ch.kind='dm' AND m.person_id=? AND m.confirmed=0", pid):
-            name = store.one("SELECT name FROM people WHERE id=?", c["person_id"])["name"]
-            needs.append({"invite_used": {"for": mark(c["label"]), "calls_themselves": mark(name), "chat": c["chat_id"],
+            name = core._in_chat(store, pid, c["chat_id"], c["shown"], "name")
+            needs.append({"invite_used": {"for": mark(core._mine(pid, c["label"], "label")),
+                                          "calls_themselves": mark(name), "chat": c["chat_id"],
                                           "to_confirm": "chats_people label with this chat, once your person says "
                                                         "it is who they meant"}})
         if blocked:
@@ -159,7 +165,7 @@ def index(store: Store, pid: str, link: str) -> str:
                          store.now() - core.DAY)
         out["sent_in_your_name_24h"] = {r["voice"]: r["n"] for r in sent}
     out["chats"] = chats
-    out["about"] = mark(person["about"])
+    out["about"] = mark(core._mine(pid, person["about"], "about"))
     out["rules"] = RULES
     return render(out)
 
@@ -169,7 +175,7 @@ def _preview(store: Store, pid: str, inv, contacts: dict, blocked: set) -> dict:
     members = [r["person_id"] for r in store.all("SELECT person_id FROM members WHERE chat_id=? AND state='joined'",
                                                  inv["chat_id"])]
     known = [mark(contacts[m]["label"]) for m in members if m in contacts]
-    return {"chat": inv["chat_id"], "group": mark(inv["name"]),
+    return {"chat": inv["chat_id"], "group": mark(core._in_chat(store, pid, inv["chat_id"], inv["name"], "group name")),
             "invited_by": who(store, pid, inv["invited_by"], inv["chat_id"], contacts, blocked),
             "your_contacts_in_it": known, "others": len(members) - len(known),
             "someone_you_blocked_is_in_it": any(m in blocked for m in members)}
@@ -207,7 +213,7 @@ def _chat(store: Store, pid: str, link: str, chat_id: str, before: int | None) -
     for m in shown:
         item = {"seq": m["seq"], "from": who(store, pid, m["sender_id"], chat_id, contacts, blocked),
                 "voice": m["voice"] if m["voice"] == "person" else "assistant, on its own, not a commitment",
-                "at": _t(m["t"]), "text": mark(m["text"])}
+                "at": _t(m["t"]), "text": mark(core._in_chat(store, pid, chat_id, m["text"], "message"))}
         if m["mention"]:
             item["mention"] = json.loads(m["mention"])
         if m["kind"] == "ask":
@@ -227,27 +233,30 @@ def _chat(store: Store, pid: str, link: str, chat_id: str, before: int | None) -
                        for m in members if m["state"] == "joined"],
            "invitations_pending": pending, "answering": bool(me["answering"]),
            "open_asks": [_tally(store, a, me["number"], pid) for a in asks if not a["closed_t"]],
-           "outcomes": [{"ask": a["seq"], "question": mark(a["text"]), "outcome": mark(a["outcome"]),
+           "outcomes": [{"ask": a["seq"], "question": mark(core._in_chat(store, pid, chat_id, a["text"], "message")),
+                         "outcome": mark(core._in_chat(store, pid, chat_id, a["outcome"], "outcome")),
                          "at": _t(a["closed_t"])} for a in asks if a["closed_t"]],
-           "your_notes": mark(me["notes"]), "flag": mark(me["flag"]) if me["flag"] else None,
+           "your_notes": mark(core._mine(pid, me["notes"], "notes")),
+           "flag": mark(core._mine(pid, me["flag"], "flag")) if me["flag"] else None,
            "messages": messages, "upto": upto,
            "more_unread": before is None and bool(core._visible(store, pid, chat_id, upto, limit=1))}
     if me["kind"] == "group":
-        out["name"] = mark(me["name"])
+        out["name"] = mark(core._in_chat(store, pid, chat_id, me["name"], "group name"))
     return render(out)
 
 
 def contacts(store: Store, pid: str) -> str:
-    rows = store.all("SELECT m.chat_id, m.label, m.confirmed, m.t, o.person_id FROM members m JOIN chats c ON "
-                     "c.id=m.chat_id JOIN members o ON o.chat_id=m.chat_id AND o.person_id<>m.person_id WHERE "
+    rows = store.all("SELECT m.chat_id, m.label, m.confirmed, m.t, o.person_id, o.shown FROM members m JOIN chats c "
+                     "ON c.id=m.chat_id JOIN members o ON o.chat_id=m.chat_id AND o.person_id<>m.person_id WHERE "
                      "c.kind='dm' AND m.person_id=? ORDER BY m.t", pid)
     blocked = core._blocked_by(store, pid)
     out = []
     for r in rows:
-        person = store.one("SELECT name, erased_t FROM people WHERE id=?", r["person_id"])
-        item = {"chat": r["chat_id"], "label": mark(r["label"]), "since": _t(r["t"])}
+        person = store.one("SELECT erased_t FROM people WHERE id=?", r["person_id"])
+        item = {"chat": r["chat_id"], "label": mark(core._mine(pid, r["label"], "label")), "since": _t(r["t"])}
         if not r["confirmed"]:
-            item["not_yet_confirmed"] = {"calls_themselves": mark(person["name"])}
+            item["not_yet_confirmed"] = {"calls_themselves": mark(core._in_chat(store, pid, r["chat_id"], r["shown"],
+                                                                                "name"))}
         if person["erased_t"]:
             item["left"] = True
         if r["person_id"] in blocked:
@@ -255,8 +264,8 @@ def contacts(store: Store, pid: str) -> str:
         out.append(item)
     invites = store.all("SELECT note, expires_t FROM invites WHERE maker_id=? AND used_t IS NULL AND expires_t>? "
                         "ORDER BY created_t", pid, store.now())
-    return render({"contacts": out, "open_invites": [{"for": mark(i["note"]), "until": _t(i["expires_t"])}
-                                                     for i in invites]})
+    return render({"contacts": out, "open_invites": [{"for": mark(core._mine(pid, i["note"], "label")),
+                                                      "until": _t(i["expires_t"])} for i in invites]})
 
 
 def mine(store: Store, pid: str) -> str:

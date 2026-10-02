@@ -2,9 +2,20 @@ from __future__ import annotations
 
 import pytest
 
-from chats import core
+from chats import core, vault
 
 T0 = 1_790_000_000.0
+# Hundreds of invites and codes, each a scrypt derivation: the work factor is what the suite would wait on, not the
+# scheme, which test_vault checks at the real one.
+vault.SCRYPT_N = 2 ** 8
+
+
+@pytest.fixture(autouse=True)
+def keys():
+    """Every key a test makes, for any of its threads: a call made through a connection holds only its own."""
+    vault._SHARED = {}
+    yield vault._SHARED
+    vault._SHARED = None
 
 
 class Clock:
@@ -70,4 +81,14 @@ def connection(store, *, invite: str = "", name: str = "") -> tuple[str, str]:
                                             "scopes": []})
     _, code = core.allow(store, request, invite, name)
     access, _ = core.exchange_code(store, code)
-    return core.access(store, access)["grant"], access
+    grant = core.access(store, access)["grant"]
+    TOKENS[grant] = access
+    return grant, access
+
+
+TOKENS: dict[str, str] = {}             # the access token each connection's app holds, by connection
+
+
+def first_call(store, grant: str) -> str:
+    """A tool call through that connection, with the token its app holds."""
+    return core.person_for_grant(store, grant, TOKENS.get(grant, ""))

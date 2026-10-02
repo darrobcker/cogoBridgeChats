@@ -7,6 +7,7 @@ For coding agents and new contributors. Read `PROTOCOL.md` first: it is short, a
 | Path | What it is |
 |---|---|
 | `PROTOCOL.md` | The protocol: roles, objects, rules, operations. Normative. Change it before changing behaviour |
+| `chats/vault.py` | Locks: the keys what anyone writes is kept under, and the keys one call holds (rule 18) |
 | `chats/core.py` | Every rule of PROTOCOL.md, and sign-in's. If a rule is enforced anywhere else, that is a bug |
 | `chats/views.py` | What an assistant is shown, and `mark()` |
 | `chats/mcp_server.py` | The five tools, and the instructions every assistant receives |
@@ -39,6 +40,9 @@ CHATS_HOME=/tmp/chats-dev uv run chats serve --port 8771
 5. No model runs on the server and no API key is read.
 6. Every writer checks its person is alive inside its transaction (`tests/test_core.py` finds them all).
 7. Bridge Chats imports nothing from Bridge.
+8. What anyone writes is stored only locked, and a call holds the key of no one but the person whose connection or
+   run link it came through (rule 18). `tests/test_core.py::test_nothing_anyone_wrote_is_kept_readable` scans the
+   database for it.
 
 ## Conventions
 

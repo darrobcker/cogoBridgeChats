@@ -149,7 +149,7 @@ def test_an_invite_page_pressed_from_another_site_remembers_nothing(store):
 
 def test_the_pages_say_who_can_read_what(store):
     page = browser(store).get("/").text
-    assert "Pat can read everything on it" in page and "not end-to-end encrypted" in page
+    assert "Pat cannot read what is stored" in page and "not end-to-end encrypted" in page
     assert "github.com/darrobcker/cogoBridgeChats" in page
     assert browser(store).get("/health").json()["bridge_chats"] == core.VERSION
 
@@ -167,7 +167,7 @@ def test_the_allow_page_names_the_app_where_it_returns_and_the_name_and_asks_for
                                         "code_challenge_method": "S256", "state": "s"}, follow_redirects=False)
     page = b.get(asked.headers["location"]).text
     assert "Connect Claude to Bridge Chats?" in page and "app.test" in page and "<input" not in page.split("<form")[0]
-    assert "Bo &lt;b&gt;B.&lt;/b&gt;" in page and "can read everything" in page and "minutes to hours" in page
+    assert "Bo &lt;b&gt;B.&lt;/b&gt;" in page and "cannot read what is stored" in page and "minutes to hours" in page
 
 
 def test_an_invite_goes_only_to_the_app_its_holder_said_they_use(store, clock):

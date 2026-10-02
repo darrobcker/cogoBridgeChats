@@ -41,4 +41,6 @@ Then add `<address>/mcp` to your AI as a connector with OAuth sign-in, press All
 Chats." Your AI makes invites for the people you want to bring in; each taps their own link.
 [docs/OPERATIONS.md](docs/OPERATIONS.md) covers keeping it running, backups and alerts.
 
-Whoever runs a server can read everything on it, and every page says so. Apache-2.0.
+Whoever runs a server cannot open what is stored on it: everything anyone writes is kept locked under keys only
+the people in each chat hold, through their own AI's connection (PROTOCOL.md rule 18). It is not end-to-end
+encrypted: a message passes through the server while it is delivered, and every page says so. Apache-2.0.
