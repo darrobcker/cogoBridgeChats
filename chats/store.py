@@ -131,6 +131,8 @@ class Store:
             self.db.executescript(SCHEMA)
             self.db.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
         else:
+            if version < SCHEMA_VERSION:
+                from . import core  # noqa: F401 — registers the migrations that need the rules' code
             while version in MIGRATIONS:
                 step = MIGRATIONS[version]
                 step(self.db) if callable(step) else self.db.executescript(step)
