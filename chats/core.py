@@ -129,7 +129,7 @@ def _release(store: Store, pid: str) -> None:
 
 def _start_over(store: Store, pid: str) -> bytes:
     """A new key for someone nothing they still hold opens: what was sealed to the old one is gone for good, for them
-    too. Their chats stay theirs in name, and open again as someone in each lets them back in."""
+    too. Their chats stay theirs in name, and what was in them stays closed to them."""
     private, public = vault.new_pair()
     store.exec("UPDATE people SET public=?, name='', about='', about_prev='' WHERE id=?", public, pid)
     store.exec("UPDATE members SET key='', label='', notes='', flag='' WHERE person_id=?", pid)

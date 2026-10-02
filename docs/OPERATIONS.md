@@ -68,8 +68,8 @@ that app account, has a new, empty account the next time they add it. If it stil
 that app gives a code (`chats_settings another_app`). If not, nobody can bring their chats back: everything in
 them is locked under keys only their connections held (PROTOCOL.md rule 18). `uv run chats code <person id>` still
 makes a code for a person id the operator somehow has, sent only to them through a channel they already trust; its
-use ends every other connection of theirs, and they start over: their chats stay theirs, and open again only as
-someone in each lets them back in.
+use ends every other connection of theirs, and they start over: their chats stay theirs in name, and what was in
+them stays closed to them.
 
 ## Locks and reports
 

@@ -128,7 +128,7 @@ invite codes.
     whoever invited them, at the invitation, or from the invite's maker once they confirm who used it. An invite
     carries its maker's name locked under its link's token and its code. A code from `another_app` or `new_link`
     carries the person's key; one the operator makes carries none, and whoever uses it starts over: their chats stay
-    theirs, and open again only as someone in each lets them back in. Reports are sealed to the operator's report
+    theirs in name, and what was in them stays closed to them. Reports are sealed to the operator's report
     key, whose private half is kept beside the database, not in it: what a member reports, the operator reads. A
     server holds a person's key only in a call through one of their connections or their run link, for that call
     alone. A database from before locks MAY keep each person's key open until each connection and run link they had
