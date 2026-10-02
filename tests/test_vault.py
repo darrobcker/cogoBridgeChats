@@ -31,8 +31,9 @@ def test_a_code_s_key_takes_real_work_at_the_real_factor(monkeypatch):
     monkeypatch.setattr(vault, "SCRYPT_N", 2 ** 14)
     vault.from_code.cache_clear()
     try:
-        key = vault.from_code("abcdefghjkmnpq", "invite")
-        assert key == vault.from_code("abcdefghjkmnpq", "invite") != vault.from_code("abcdefghjkmnpq", "link code")
+        key = vault.from_code("abcdefghjkmnpq", "invite", "g-1")
+        assert key == vault.from_code("abcdefghjkmnpq", "invite", "g-1") != vault.from_code("abcdefghjkmnpq", "invite",
+                                                                                              "g-2")
     finally:
         vault.from_code.cache_clear()
 

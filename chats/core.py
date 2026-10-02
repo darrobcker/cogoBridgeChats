@@ -517,6 +517,12 @@ def _code_hash(code: str) -> str:
     return _hash("".join(ch for ch in (code or "").lower() if ch in _ALPHABET))
 
 
+def _invite_code_hash(code: str) -> str:
+    """How an invite's code is found: through scrypt, since ten characters are about 50 bits, which a fast hash would
+    give up to one graphics card in a day (review). No row is known before it is found, so its salt is the purpose."""
+    return vault.from_code("".join(ch for ch in (code or "").lower() if ch in _ALPHABET), "invite lookup").hex()
+
+
 def link_code(store: Store, pid: str, *, replace: bool) -> str:
     """A code for the chat of another app, where it makes that app's connection this person's. With `replace`, its
     use ends every other connection and run link of theirs. A new code ends any earlier one not yet used."""
@@ -529,7 +535,7 @@ def link_code(store: Store, pid: str, *, replace: bool) -> str:
         store.exec("DELETE FROM link_codes WHERE person_id=? AND used_t IS NULL", pid)
         store.exec("INSERT INTO link_codes(hash, person_id, replace, created_t, person_key) VALUES (?,?,?,?,?)",
                    _code_hash(raw), pid, int(replace), store.now(),
-                   vault.lock(vault.from_code(raw, "link code"), private, "person key") if private else "")
+                   vault.lock(vault.from_code(raw, "link code", pid), private, "person key") if private else "")
         _audit(store, pid, "app", "made a code for " + ("a new connection, ending the others" if replace else
                                                          "another app"))
     return "-".join(raw[i:i + 4] for i in range(0, LINK_CODE, 4))
@@ -550,7 +556,7 @@ def use_link_code(store: Store, pid: str, grant_id: str, code: str, token: str =
                           "replaced by a newer one. Ask for a fresh one in the app where Bridge Chats already works")
         target = row["person_id"]
         typed = "".join(ch for ch in (code or "").lower() if ch in _ALPHABET)
-        theirs = vault.unlock(vault.from_code(typed, "link code"), row["person_key"], "person key") \
+        theirs = vault.unlock(vault.from_code(typed, "link code", target), row["person_key"], "person key") \
             if row["person_key"] else None
         connection = _connection_from(store, token)
         if target == pid:
@@ -627,10 +633,11 @@ def invite(store: Store, pid: str, names: list[str], chat_id: str | None = None)
             token = secrets.token_urlsafe(16)
             code = "".join(secrets.choice(_ALPHABET) for _ in range(10))
             store.exec("INSERT INTO invites(id, hash, code, maker_id, note, chat_id, created_t, expires_t, maker_t, "
-                       "maker_c) VALUES (?,?,?,?,?,?,?,?,?,?)", _new_id(store, "invites", "i"), _hash(token),
-                       _code_hash(code), pid, vault.lock_text(_self(pid), note, "label"), chat_id, store.now(),
-                       store.now() + INVITE_DAYS * DAY, vault.lock(vault.from_secret(token, "invite"), maker, "maker"),
-                       vault.lock(vault.from_code(code, "invite"), maker, "maker"))
+                       "maker_c) VALUES (?,?,?,?,?,?,?,?,?,?)", invite_id := _new_id(store, "invites", "i"),
+                       _hash(token), _invite_code_hash(code), pid, vault.lock_text(_self(pid), note, "label"), chat_id,
+                       store.now(), store.now() + INVITE_DAYS * DAY,
+                       vault.lock(vault.from_secret(token, "invite"), maker, "maker"),
+                       vault.lock(vault.from_code(code, "invite", invite_id), maker, "maker"))
             out.append({"for": note, "token": token, "code": code})
         _audit(store, pid, "app", f"made {len(notes)} invite(s)")
     return out
@@ -643,7 +650,7 @@ def _usable_invite(store: Store, token: str = "", code: str = "", hashed: str = 
         return None
     return store.one("SELECT i.* FROM invites i JOIN people p ON p.id=i.maker_id WHERE (i.hash=? OR i.code=?) "
                      "AND i.used_t IS NULL AND i.expires_t > ? AND p.erased_t IS NULL", hashed,
-                     _code_hash(code) if code else "", store.now())
+                     _invite_code_hash(code) if code else "", store.now())
 
 
 def _maker_name(inv, *, token: str = "", code: str = "") -> str:
@@ -652,7 +659,7 @@ def _maker_name(inv, *, token: str = "", code: str = "") -> str:
         if token and inv["maker_t"]:
             return vault.unlock_text(vault.from_secret(token, "invite"), inv["maker_t"], "maker")
         if code and inv["maker_c"]:
-            return vault.unlock_text(vault.from_code(code, "invite"), inv["maker_c"], "maker")
+            return vault.unlock_text(vault.from_code(code, "invite", inv["id"]), inv["maker_c"], "maker")
     except vault.Locked:
         pass
     return ""
@@ -1217,6 +1224,8 @@ def _lock_everything(db) -> None:
             db.execute(statement)
         rows = lambda sql, *args: db.execute(sql, args).fetchall()         # noqa: E731
         private, public, name = {}, {}, {}
+        # Someone erased holds nothing, and kept nothing: whatever an older version left in their row goes.
+        db.execute("UPDATE people SET name='', about='', about_prev='' WHERE erased_t IS NOT NULL")
         for p in rows("SELECT * FROM people WHERE erased_t IS NULL"):
             private[p["id"]], public[p["id"]] = vault.new_pair()
             mine, name[p["id"]] = vault.self_key(private[p["id"]]), p["name"]
@@ -1230,8 +1239,8 @@ def _lock_everything(db) -> None:
         for i in rows("SELECT * FROM invites"):
             maker = name.get(i["maker_id"], "").encode()
             db.execute("UPDATE invites SET note=?, code=?, maker_c=? WHERE id=?", (
-                own(i["maker_id"], i["note"], "label"), _code_hash(i["code"]),
-                vault.lock(vault.from_code(i["code"], "invite"), maker, "maker"), i["id"]))
+                own(i["maker_id"], i["note"], "label"), _invite_code_hash(i["code"]),
+                vault.lock(vault.from_code(i["code"], "invite", i["id"]), maker, "maker"), i["id"]))
         for c in rows("SELECT * FROM chats"):
             key = vault.new_key()
             db.execute("UPDATE chats SET name=? WHERE id=?", (vault.lock_text(key, c["name"], "group name"), c["id"]))

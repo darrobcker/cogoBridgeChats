@@ -90,10 +90,11 @@ SCRYPT_N = 2 ** 14      # about 16 MB and a few hundredths of a second for each 
 
 
 @functools.lru_cache(maxsize=512)
-def from_code(code: str, purpose: str) -> bytes:
-    """A key from a code people copy by hand, 59 to 69 bits: scrypt, so a copy of the database cannot try them all.
-    Kept, so an invite page read again does not cost the work again."""
-    return Scrypt(salt=purpose.encode(), length=32, n=SCRYPT_N, r=8, p=1).derive(code.encode())
+def from_code(code: str, purpose: str, salt: str = "") -> bytes:
+    """A key from a code people copy by hand, 50 to 59 bits: scrypt, so a copy of the database cannot try them all,
+    salted with the row it belongs to where the row is known, so one guess cannot be tried against every row at once
+    (review). Kept, so a code tried again does not cost the work again."""
+    return Scrypt(salt=f"{purpose}:{salt}".encode(), length=32, n=SCRYPT_N, r=8, p=1).derive(code.encode())
 
 
 def new_pair() -> tuple[bytes, str]:
